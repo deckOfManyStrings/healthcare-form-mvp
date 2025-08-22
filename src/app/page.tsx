@@ -1,4 +1,4 @@
-// src/app/page.tsx - Updated with team management integration
+// src/app/page.tsx - Clean version with invite codes only
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -8,19 +8,16 @@ import { supabase } from '@/lib/supabase'
 import type { User } from '@supabase/supabase-js'
 import type { UserRole } from '@/lib/database.types'
 
-// Import existing components
+// Import components
 import { LandingSection } from '@/components/sections/LandingSection'
 import { LoginSection } from '@/components/sections/LoginSection'
 import { RegisterSection } from '@/components/sections/RegisterSection'
 import { OnboardingSection } from '@/components/sections/OnboardingSection'
 import { DashboardSection } from '@/components/sections/DashboardSection'
-
-// Import new team management components
 import { TeamManagementSection } from '@/components/sections/TeamManagementSection'
-import { InvitationAcceptanceSection } from '@/components/sections/InvitationAcceptanceSection'
+import { InviteCodeSection } from '@/components/sections/InviteCodeSection'
 
-// Extended app state to include team management
-type AppState = 'loading' | 'landing' | 'login' | 'register' | 'onboarding' | 'dashboard' | 'team-management' | 'invitation-acceptance'
+type AppState = 'loading' | 'landing' | 'login' | 'register' | 'invite-code' | 'onboarding' | 'dashboard' | 'team-management'
 
 interface LoginForm {
   email: string
@@ -65,32 +62,24 @@ export default function HomePage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
-  const [invitationToken, setInvitationToken] = useState<string | null>(null)
 
-  // Check for invitation token in URL on page load
+  // Check authentication status on page load
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search)
-      const token = urlParams.get('token')
-      if (token) {
-        setInvitationToken(token)
-        setAppState('invitation-acceptance')
-        return
-      }
-    }
-    // If no invitation token, proceed with normal auth check
     checkAuth()
   }, [])
 
   // Check authentication status
   const checkAuth = async () => {
     try {
+      console.log('🔍 Checking authentication status...')
       const { data: { session } } = await supabase.auth.getSession()
       
       if (session?.user) {
+        console.log('✅ User session found:', session.user.id)
         setUser(session.user)
         await loadUserProfile(session.user.id)
       } else {
+        console.log('ℹ️ No user session found')
         setAppState('landing')
       }
     } catch (error) {
@@ -145,7 +134,7 @@ export default function HomePage() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Existing auth handlers (keeping them the same)
+  // Auth handlers
   const handleLogin = async (values: LoginForm) => {
     setAuthLoading(true)
     setAuthError(null)
@@ -205,79 +194,68 @@ export default function HomePage() {
   }
 
   const handleBusinessSetup = async (values: BusinessForm) => {
-  setAuthLoading(true)
-  setAuthError(null)
+    setAuthLoading(true)
+    setAuthError(null)
 
-  try {
-    console.log('🔄 Starting business setup...', values)
-    console.log('🔄 Current user:', user)
+    try {
+      console.log('🔄 Starting business setup...', values)
 
-    if (!user) {
-      throw new Error('No authenticated user found')
-    }
+      if (!user) {
+        throw new Error('No authenticated user found')
+      }
 
-    // Create business
-    console.log('🔄 Creating business...')
-    const { data: business, error: businessError } = await supabase
-      .from('businesses')
-      .insert({
-        name: values.businessName,
-        phone: values.phone,
-        address: {
-          street: values.address,
-          city: values.city,
-          state: values.state,
-          zipCode: values.zipCode
-        }
+      // Create business
+      const { data: business, error: businessError } = await supabase
+        .from('businesses')
+        .insert({
+          name: values.businessName,
+          phone: values.phone,
+          address: {
+            street: values.address,
+            city: values.city,
+            state: values.state,
+            zipCode: values.zipCode
+          }
+        })
+        .select()
+        .single()
+
+      if (businessError) {
+        setAuthError(`Business creation failed: ${businessError.message}`)
+        return
+      }
+
+      // Update user with business_id and role
+      const { error: userError } = await supabase
+        .from('users')
+        .upsert({
+          id: user.id,
+          email: user.email!,
+          business_id: business.id,
+          role: 'owner' as UserRole,
+          first_name: user.user_metadata?.first_name,
+          last_name: user.user_metadata?.last_name,
+        })
+
+      if (userError) {
+        setAuthError(`User profile update failed: ${userError.message}`)
+        return
+      }
+
+      notifications.show({
+        title: 'Business setup complete!',
+        message: 'Welcome to your Healthcare Forms dashboard.',
+        color: 'green',
       })
-      .select()
-      .single()
 
-    if (businessError) {
-      console.error('❌ Business creation error:', businessError)
-      setAuthError(`Business creation failed: ${businessError.message}`)
-      return
+      await loadUserProfile(user.id)
+
+    } catch (err: any) {
+      setAuthError(`Setup failed: ${err.message}`)
+    } finally {
+      setAuthLoading(false)
     }
-
-    console.log('✅ Business created:', business)
-
-    // Update user with business_id and role
-    console.log('🔄 Updating user profile...')
-    const { error: userError } = await supabase
-      .from('users')
-      .upsert({
-        id: user.id,
-        email: user.email!,
-        business_id: business.id,
-        role: 'owner' as UserRole,
-        first_name: user.user_metadata?.first_name,
-        last_name: user.user_metadata?.last_name,
-      })
-
-    if (userError) {
-      console.error('❌ User update error:', userError)
-      setAuthError(`User profile update failed: ${userError.message}`)
-      return
-    }
-
-    console.log('✅ User profile updated')
-
-    notifications.show({
-      title: 'Business setup complete!',
-      message: 'Welcome to your Healthcare Forms dashboard.',
-      color: 'green',
-    })
-
-    console.log('🔄 Loading user profile...')
-    await loadUserProfile(user.id)
-
-  } catch (err: any) {
-    console.error('❌ Business setup failed:', err)
-    setAuthError(`Setup failed: ${err.message}`)
-  } finally {
-    setAuthLoading(false)
   }
-}
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -288,30 +266,18 @@ export default function HomePage() {
     })
   }
 
-  // NEW: Invitation handlers
-  const handleInvitationSuccess = async () => {
-    // Clear invitation token from URL
-    if (typeof window !== 'undefined') {
-      window.history.replaceState({}, document.title, window.location.pathname)
-    }
-    setInvitationToken(null)
-    
-    // Check auth status after successful invitation acceptance
-    await checkAuth()
-  }
-
-  const handleInvitationError = (error: string) => {
-    setAuthError(error)
-    setAppState('landing')
-  }
-
-  // NEW: Navigation handlers for team management
+  // Navigation handlers
   const handleTeamManagement = () => {
     setAppState('team-management')
   }
 
   const handleBackToDashboard = () => {
     setAppState('dashboard')
+  }
+
+  const handleInviteCodeSuccess = async () => {
+    // After successful invite code usage, check auth status
+    await checkAuth()
   }
 
   // Loading state
@@ -328,23 +294,13 @@ export default function HomePage() {
     )
   }
 
-  // NEW: Invitation acceptance page
-  if (appState === 'invitation-acceptance' && invitationToken) {
-    return (
-      <InvitationAcceptanceSection
-        token={invitationToken}
-        onSuccess={handleInvitationSuccess}
-        onError={handleInvitationError}
-      />
-    )
-  }
-
   // Landing page
   if (appState === 'landing') {
     return (
       <LandingSection 
         onLoginClick={() => setAppState('login')}
         onRegisterClick={() => setAppState('register')}
+        onInviteCodeClick={() => setAppState('invite-code')}
       />
     )
   }
@@ -375,6 +331,16 @@ export default function HomePage() {
     )
   }
 
+  // Invite code page
+  if (appState === 'invite-code') {
+    return (
+      <InviteCodeSection
+        onSuccess={handleInviteCodeSuccess}
+        onBackClick={() => setAppState('landing')}
+      />
+    )
+  }
+
   // Onboarding page
   if (appState === 'onboarding') {
     return (
@@ -388,7 +354,7 @@ export default function HomePage() {
     )
   }
 
-  // NEW: Team management page
+  // Team management page
   if (appState === 'team-management') {
     return (
       <TeamManagementSection
@@ -400,7 +366,7 @@ export default function HomePage() {
     )
   }
 
-  // Updated dashboard page with team management navigation
+  // Dashboard page
   if (appState === 'dashboard') {
     return (
       <DashboardSection

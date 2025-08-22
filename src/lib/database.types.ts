@@ -1,3 +1,4 @@
+// src/lib/database.types.ts - Updated without user_invitations
 export type UserRole = 'owner' | 'manager' | 'staff';
 export type SubscriptionTier = 'free' | 'basic' | 'premium';
 export type FormStatus = 'draft' | 'active' | 'inactive' | 'archived';
@@ -73,38 +74,41 @@ export interface Database {
           updated_at?: string;
         };
       };
-      user_invitations: {
+      invite_codes: {
         Row: {
           id: string;
           business_id: string;
-          email: string;
+          code: string;
           role: UserRole;
-          invited_by: string | null;
-          token: string;
+          email: string | null;
+          created_by: string | null;
+          used_by: string | null;
+          used_at: string | null;
           expires_at: string;
-          accepted_at: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           business_id: string;
-          email: string;
+          code: string;
           role: UserRole;
-          invited_by?: string | null;
-          token: string;
+          email?: string | null;
+          created_by?: string | null;
+          used_by?: string | null;
+          used_at?: string | null;
           expires_at: string;
-          accepted_at?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           business_id?: string;
-          email?: string;
+          code?: string;
           role?: UserRole;
-          invited_by?: string | null;
-          token?: string;
+          email?: string | null;
+          created_by?: string | null;
+          used_by?: string | null;
+          used_at?: string | null;
           expires_at?: string;
-          accepted_at?: string | null;
           created_at?: string;
         };
       };

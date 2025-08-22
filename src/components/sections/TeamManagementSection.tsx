@@ -1,4 +1,4 @@
-// src/components/sections/TeamManagementSection.tsx - Updated with proper security
+// src/components/sections/TeamManagementSection.tsx - Updated with invite codes
 import { useState, useEffect } from 'react'
 import {
   Container,
@@ -19,21 +19,28 @@ import {
   Center,
   Paper,
   ThemeIcon,
-  Divider
+  Divider,
+  CopyButton,
+  Tooltip,
+  Code
 } from '@mantine/core'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
 import {
   IconPlus,
   IconTrash,
-  IconMail,
   IconUsers,
   IconClock,
   IconArrowLeft,
-  IconAlertCircle
+  IconAlertCircle,
+  IconKey,
+  IconCopy,
+  IconCheck,
+  IconMail
 } from '@tabler/icons-react'
 import type { UserRole } from '@/lib/database.types'
-import { getTeamData, createInvitation, getCurrentUserProfile } from '@/lib/security'
+import { createInviteCode, getBusinessInviteCodes } from '@/lib/inviteCodes'
+import type { InviteCode } from '@/lib/inviteCodes'
 import { supabase } from '@/lib/supabase'
 
 interface TeamMember {
@@ -46,20 +53,10 @@ interface TeamMember {
   created_at: string
 }
 
-interface PendingInvitation {
-  id: string
-  email: string
+interface InviteCodeForm {
   role: UserRole
-  invited_by: string | null
-  expires_at: string
-  created_at: string
-}
-
-interface InviteForm {
   email: string
-  role: UserRole
-  firstName: string
-  lastName: string
+  expiryDays: number
 }
 
 interface TeamManagementSectionProps {
@@ -76,29 +73,28 @@ export function TeamManagementSection({
   currentUserRole = 'owner'
 }: TeamManagementSectionProps) {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([])
+  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([])
   const [loading, setLoading] = useState(true)
-  const [inviteModalOpen, setInviteModalOpen] = useState(false)
-  const [inviteLoading, setInviteLoading] = useState(false)
+  const [createCodeModalOpen, setCreateCodeModalOpen] = useState(false)
+  const [createCodeLoading, setCreateCodeLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const inviteForm = useForm<InviteForm>({
+  const inviteForm = useForm<InviteCodeForm>({
     initialValues: {
-      email: '',
       role: 'staff',
-      firstName: '',
-      lastName: ''
+      email: '',
+      expiryDays: 7
     },
     validate: {
-      email: (val) => (/^\S+@\S+$/.test(val) ? null : 'Invalid email'),
-      firstName: (val) => (val.length < 2 ? 'First name must be at least 2 characters' : null),
-      lastName: (val) => (val.length < 2 ? 'Last name must be at least 2 characters' : null),
+      email: (val) => val && !/^\S+@\S+$/.test(val) ? 'Invalid email' : null,
     },
   })
 
-  // Load team data using secure function
+  // Load team data
   useEffect(() => {
-    loadTeamData()
+    if (businessId) {
+      loadTeamData()
+    }
   }, [businessId])
 
   const loadTeamData = async () => {
@@ -108,10 +104,20 @@ export function TeamManagementSection({
       setLoading(true)
       setError(null)
 
-      // Use secure function that includes permission checks
-      const teamData = await getTeamData(businessId)
-      setTeamMembers(teamData.members)
-      setPendingInvitations(teamData.invitations)
+      // Load team members
+      const { data: members, error: membersError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false })
+
+      if (membersError) throw membersError
+
+      // Load invite codes
+      const codes = await getBusinessInviteCodes(businessId)
+
+      setTeamMembers(members || [])
+      setInviteCodes(codes)
 
     } catch (err: any) {
       setError(err.message)
@@ -121,124 +127,60 @@ export function TeamManagementSection({
     }
   }
 
-  const handleSendInvitation = async (values: InviteForm) => {
-  console.log('🔄 STARTING invitation send...', values)
-  
-  if (!businessId) {
-    console.error('❌ No business ID available')
-    setError('No business ID available')
-    return
-  }
+  const handleCreateInviteCode = async (values: InviteCodeForm) => {
+    if (!businessId) return
 
-  try {
-    setInviteLoading(true)
-    setError(null)
+    try {
+      setCreateCodeLoading(true)
+      setError(null)
 
-    console.log('🔄 Step 1: Checking for existing user...')
-    
-    // Check if user already exists
-    const { data: existingUser, error: userCheckError } = await supabase
-      .from('users')
-      .select('email')
-      .eq('email', values.email)
-      .single()
+      console.log('🔄 Creating invite code...', values)
 
-    console.log('🔄 User check result:', { existingUser, userCheckError })
+      const code = await createInviteCode(
+        businessId,
+        values.role,
+        values.email || undefined,
+        values.expiryDays
+      )
 
-    if (existingUser) {
-      throw new Error('A user with this email already exists')
-    }
-
-    console.log('🔄 Step 2: Getting current user...')
-    
-    // Get current user ID
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    console.log('🔄 Auth user result:', { user: user?.id, authError })
-    
-    if (!user) throw new Error('Not authenticated')
-
-    console.log('🔄 Step 3: Creating invitation token...')
-    
-    // Generate secure token
-    const token = crypto.randomUUID() + '-' + Date.now()
-    const expiresAt = new Date()
-    expiresAt.setDate(expiresAt.getDate() + 7) // 7 days expiry
-
-    console.log('🔄 Step 4: Inserting invitation...', {
-      business_id: businessId,
-      email: values.email,
-      role: values.role,
-      invited_by: user.id,
-      token,
-      expires_at: expiresAt.toISOString()
-    })
-
-    // Create invitation
-    const { error: inviteError } = await supabase
-      .from('user_invitations')
-      .insert({
-        business_id: businessId,
-        email: values.email,
-        role: values.role,
-        invited_by: user.id,
-        token,
-        expires_at: expiresAt.toISOString()
+      notifications.show({
+        title: 'Invite code created!',
+        message: `Code ${code} has been created and is ready to share.`,
+        color: 'green',
       })
 
-    console.log('🔄 Invitation insert result:', { inviteError })
+      // Reset form and close modal
+      inviteForm.reset()
+      setCreateCodeModalOpen(false)
+      
+      // Reload data
+      loadTeamData()
 
-    if (inviteError) {
-      console.error('❌ Invitation creation error:', inviteError)
-      throw new Error(`Failed to create invitation: ${inviteError.message}`)
+    } catch (err: any) {
+      setError(err.message)
+      notifications.show({
+        title: 'Error',
+        message: err.message,
+        color: 'red',
+      })
+    } finally {
+      setCreateCodeLoading(false)
     }
-
-    console.log('✅ Invitation created successfully!')
-
-    notifications.show({
-      title: 'Invitation sent!',
-      message: `An invitation has been sent to ${values.email}`,
-      color: 'green',
-    })
-
-    // Reset form and close modal
-    inviteForm.reset()
-    setInviteModalOpen(false)
-    
-    // Reload data
-    loadTeamData()
-
-  } catch (err: any) {
-    console.error('❌ FULL ERROR:', err)
-    setError(err.message)
-    notifications.show({
-      title: 'Error',
-      message: err.message,
-      color: 'red',
-    })
-  } finally {
-    setInviteLoading(false)
   }
-}
 
-  const handleCancelInvitation = async (invitationId: string) => {
+  const handleDeleteInviteCode = async (codeId: string) => {
     try {
-      // Verify user has permission before allowing cancellation
-      const profile = await getCurrentUserProfile()
-      if (!profile || profile.business_id !== businessId) {
-        throw new Error('Unauthorized')
-      }
-
       const { error } = await supabase
-        .from('user_invitations')
+        .from('invite_codes')
         .delete()
-        .eq('id', invitationId)
+        .eq('id', codeId)
         .eq('business_id', businessId) // Extra security check
 
       if (error) throw error
 
       notifications.show({
-        title: 'Invitation cancelled',
-        message: 'The invitation has been cancelled',
+        title: 'Invite code deleted',
+        message: 'The invite code has been deleted',
         color: 'blue',
       })
 
@@ -259,6 +201,11 @@ export function TeamManagementSection({
       case 'staff': return 'green'
       default: return 'gray'
     }
+  }
+
+  const formatCodeForDisplay = (code: string) => {
+    // Display as ABCD-1234 for better readability
+    return code.slice(0, 4) + '-' + code.slice(4)
   }
 
   if (loading) {
@@ -284,16 +231,16 @@ export function TeamManagementSection({
           </ActionIcon>
           <Stack gap="xs">
             <Title order={1}>Team Management</Title>
-            <Text c="dimmed">Manage your healthcare facility team</Text>
+            <Text c="dimmed">Manage your healthcare facility team with invite codes</Text>
           </Stack>
         </Group>
         
         {(currentUserRole === 'owner' || currentUserRole === 'manager') && (
           <Button
-            leftSection={<IconPlus size={16} />}
-            onClick={() => setInviteModalOpen(true)}
+            leftSection={<IconKey size={16} />}
+            onClick={() => setCreateCodeModalOpen(true)}
           >
-            Invite Team Member
+            Create Invite Code
           </Button>
         )}
       </Group>
@@ -313,21 +260,11 @@ export function TeamManagementSection({
       <Group justify="center" mb="xl">
         <Paper shadow="sm" radius="md" p="md" withBorder>
           <Stack gap="xs" align="center">
-            <ThemeIcon size={30} radius="md" color="blue">
-              <IconUsers size={16} />
+            <ThemeIcon size={30} radius="md" color="green">
+              <IconCheck size={16} />
             </ThemeIcon>
-            <Text size="xl" fw={700}>{teamMembers.length}</Text>
-            <Text size="sm" c="dimmed">Team Members</Text>
-          </Stack>
-        </Paper>
-
-        <Paper shadow="sm" radius="md" p="md" withBorder>
-          <Stack gap="xs" align="center">
-            <ThemeIcon size={30} radius="md" color="orange">
-              <IconClock size={16} />
-            </ThemeIcon>
-            <Text size="xl" fw={700}>{pendingInvitations.length}</Text>
-            <Text size="sm" c="dimmed">Pending Invites</Text>
+            <Text size="xl" fw={700}>{inviteCodes.filter(c => c.used_at).length}</Text>
+            <Text size="sm" c="dimmed">Used Codes</Text>
           </Stack>
         </Paper>
       </Group>
@@ -343,7 +280,7 @@ export function TeamManagementSection({
 
         {teamMembers.length === 0 ? (
           <Text c="dimmed" ta="center" py="xl">
-            No team members yet. Invite your first team member to get started!
+            No team members yet. Create an invite code to get started!
           </Text>
         ) : (
           <Table>
@@ -397,109 +334,125 @@ export function TeamManagementSection({
         )}
       </Card>
 
-      {/* Pending Invitations */}
-      {pendingInvitations.length > 0 && (
-        <Card shadow="sm" radius="md" p="lg">
-          <Group justify="space-between" mb="md">
-            <Title order={2} size="h3">Pending Invitations</Title>
-            <Badge variant="light" color="orange">
-              {pendingInvitations.length} Pending
-            </Badge>
-          </Group>
+      {/* Invite Codes */}
+      <Card shadow="sm" radius="md" p="lg">
+        <Group justify="space-between" mb="md">
+          <Title order={2} size="h3">Invite Codes</Title>
+          <Badge variant="light" color="orange">
+            {inviteCodes.filter(c => !c.used_at && new Date(c.expires_at) > new Date()).length} Active
+          </Badge>
+        </Group>
 
+        {inviteCodes.length === 0 ? (
+          <Text c="dimmed" ta="center" py="xl">
+            No invite codes created yet. Create your first invite code to start adding team members!
+          </Text>
+        ) : (
           <Table>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Email</Table.Th>
+                <Table.Th>Code</Table.Th>
                 <Table.Th>Role</Table.Th>
-                <Table.Th>Sent</Table.Th>
+                <Table.Th>Email</Table.Th>
+                <Table.Th>Status</Table.Th>
                 <Table.Th>Expires</Table.Th>
                 <Table.Th>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {pendingInvitations.map((invitation) => (
-                <Table.Tr key={invitation.id}>
-                  <Table.Td>
-                    <Group gap="xs">
-                      <IconMail size={16} color="var(--mantine-color-orange-6)" />
-                      <Text>{invitation.email}</Text>
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge variant="light" color={getRoleBadgeColor(invitation.role)}>
-                      {invitation.role}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {new Date(invitation.created_at).toLocaleDateString()}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {new Date(invitation.expires_at).toLocaleDateString()}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon
-                      variant="light"
-                      color="red"
-                      size="sm"
-                      onClick={() => handleCancelInvitation(invitation.id)}
-                    >
-                      <IconTrash size={12} />
-                    </ActionIcon>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+              {inviteCodes.map((code) => {
+                const isExpired = new Date() > new Date(code.expires_at)
+                const isUsed = !!code.used_at
+                const isActive = !isUsed && !isExpired
+
+                return (
+                  <Table.Tr key={code.id}>
+                    <Table.Td>
+                      <Group gap="xs">
+                        <Code>{formatCodeForDisplay(code.code)}</Code>
+                        {isActive && (
+                          <CopyButton value={code.code}>
+                            {({ copied, copy }) => (
+                              <Tooltip label={copied ? 'Copied!' : 'Copy code'}>
+                                <ActionIcon variant="subtle" size="sm" onClick={copy}>
+                                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                          </CopyButton>
+                        )}
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge variant="light" color={getRoleBadgeColor(code.role)}>
+                        {code.role}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs">
+                        {code.email ? (
+                          <>
+                            <IconMail size={14} color="var(--mantine-color-blue-6)" />
+                            <Text size="sm">{code.email}</Text>
+                          </>
+                        ) : (
+                          <Text size="sm" c="dimmed">Any email</Text>
+                        )}
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge 
+                        variant="light" 
+                        color={isUsed ? 'gray' : isExpired ? 'red' : 'green'}
+                      >
+                        {isUsed ? 'Used' : isExpired ? 'Expired' : 'Active'}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm" c="dimmed">
+                        {new Date(code.expires_at).toLocaleDateString()}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      {isActive && (
+                        <ActionIcon
+                          variant="light"
+                          color="red"
+                          size="sm"
+                          onClick={() => handleDeleteInviteCode(code.id)}
+                        >
+                          <IconTrash size={12} />
+                        </ActionIcon>
+                      )}
+                    </Table.Td>
+                  </Table.Tr>
+                )
+              })}
             </Table.Tbody>
           </Table>
-        </Card>
-      )}
+        )}
+      </Card>
 
-      {/* Invite Modal - Same as before */}
+      {/* Create Invite Code Modal */}
       <Modal
-        opened={inviteModalOpen}
-        onClose={() => setInviteModalOpen(false)}
-        title="Invite Team Member"
+        opened={createCodeModalOpen}
+        onClose={() => setCreateCodeModalOpen(false)}
+        title="Create Invite Code"
         size="md"
       >
-        <form onSubmit={inviteForm.onSubmit(handleSendInvitation)}>
+        <form onSubmit={inviteForm.onSubmit(handleCreateInviteCode)}>
           <Stack gap="md">
-            <Group grow>
-              <TextInput
-                required
-                label="First Name"
-                placeholder="John"
-                value={inviteForm.values.firstName}
-                onChange={(event) => inviteForm.setFieldValue('firstName', event.currentTarget.value)}
-                error={inviteForm.errors.firstName}
-              />
-
-              <TextInput
-                required
-                label="Last Name"
-                placeholder="Doe"
-                value={inviteForm.values.lastName}
-                onChange={(event) => inviteForm.setFieldValue('lastName', event.currentTarget.value)}
-                error={inviteForm.errors.lastName}
-              />
-            </Group>
-
-            <TextInput
-              required
-              label="Email Address"
-              placeholder="john.doe@healthcare.com"
-              value={inviteForm.values.email}
-              onChange={(event) => inviteForm.setFieldValue('email', event.currentTarget.value)}
-              error={inviteForm.errors.email}
-            />
+            <Alert color="blue" variant="light">
+              <Text size="sm">
+                Create a secure invite code that team members can use to join your organization. 
+                Codes can be shared via email, text, or any other method.
+              </Text>
+            </Alert>
 
             <Select
               required
               label="Role"
-              placeholder="Select role"
+              placeholder="Select role for new team member"
               data={[
                 { value: 'manager', label: 'Manager - Can create and manage forms' },
                 { value: 'staff', label: 'Staff - Can fill out forms' }
@@ -508,19 +461,35 @@ export function TeamManagementSection({
               onChange={(value) => inviteForm.setFieldValue('role', value as UserRole)}
             />
 
-            <Alert color="blue" variant="light">
-              <Text size="sm">
-                An invitation email will be sent to the provided address. 
-                The invitation will expire in 7 days.
-              </Text>
-            </Alert>
+            <TextInput
+              label="Email Address (Optional)"
+              placeholder="john.doe@email.com"
+              description="Leave empty to allow any email address to use this code"
+              value={inviteForm.values.email}
+              onChange={(event) => inviteForm.setFieldValue('email', event.currentTarget.value)}
+              error={inviteForm.errors.email}
+            />
+
+            <Select
+              required
+              label="Expires After"
+              data={[
+                { value: '1', label: '1 day' },
+                { value: '3', label: '3 days' },
+                { value: '7', label: '7 days' },
+                { value: '14', label: '14 days' },
+                { value: '30', label: '30 days' }
+              ]}
+              value={inviteForm.values.expiryDays.toString()}
+              onChange={(value) => inviteForm.setFieldValue('expiryDays', parseInt(value || '7'))}
+            />
 
             <Group justify="flex-end" gap="md">
-              <Button variant="outline" onClick={() => setInviteModalOpen(false)}>
+              <Button variant="outline" onClick={() => setCreateCodeModalOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" loading={inviteLoading}>
-                Send Invitation
+              <Button type="submit" loading={createCodeLoading}>
+                Create Code
               </Button>
             </Group>
           </Stack>

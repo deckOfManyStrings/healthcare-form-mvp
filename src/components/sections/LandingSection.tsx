@@ -1,4 +1,4 @@
-// src/components/sections/LandingSection.tsx
+// src/components/sections/LandingSection.tsx - Updated with invite code option
 import {
   Container,
   Title,
@@ -11,6 +11,7 @@ import {
   ThemeIcon,
   Badge,
   Group,
+  Divider,
 } from '@mantine/core'
 import {
   IconHeart,
@@ -20,14 +21,16 @@ import {
   IconChartBar,
   IconCloudLock,
   IconCheck,
+  IconKey,
 } from '@tabler/icons-react'
 
 interface LandingSectionProps {
   onLoginClick: () => void
   onRegisterClick: () => void
+  onInviteCodeClick: () => void
 }
 
-export function LandingSection({ onLoginClick, onRegisterClick }: LandingSectionProps) {
+export function LandingSection({ onLoginClick, onRegisterClick, onInviteCodeClick }: LandingSectionProps) {
   return (
     <Container size="lg" py={80}>
       <Stack align="center" gap="lg">
@@ -43,26 +46,40 @@ export function LandingSection({ onLoginClick, onRegisterClick }: LandingSection
         </Title>
         
         <Text size="xl" ta="center" c="dimmed" maw={600}>
-          Streamline your healthcare facility&#39;s form management with our 
+          Streamline your healthcare facility's form management with our 
           HIPAA-compliant platform. Create custom forms, collect submissions, 
           and maintain secure records - all in one place.
         </Text>
 
-        <Group justify="center" gap="md">
-          <Button onClick={onRegisterClick} size="lg">
-            Start Free Trial
-          </Button>
-          <Button onClick={onLoginClick} variant="outline" size="lg">
-            Sign In
-          </Button>
-        </Group>
+        {/* Updated action buttons */}
+        <Stack align="center" gap="md">
+          <Group justify="center" gap="md">
+            <Button onClick={onRegisterClick} size="lg">
+              Start Free Trial
+            </Button>
+            <Button onClick={onLoginClick} variant="outline" size="lg">
+              Sign In
+            </Button>
+          </Group>
 
-        <Text size="sm" c="dimmed">
-          ✨ Free tier includes up to 5 users and 100 form submissions per month
-        </Text>
+          <Divider label="or" labelPosition="center" w={300} />
+
+          <Button 
+            onClick={onInviteCodeClick} 
+            variant="light" 
+            leftSection={<IconKey size={16} />}
+            size="md"
+          >
+            Join with Invite Code
+          </Button>
+
+          <Text size="sm" c="dimmed" ta="center">
+            ✨ Free tier includes up to 5 users and 100 form submissions per month
+          </Text>
+        </Stack>
       </Stack>
 
-      {/* Features Grid */}
+      {/* Features Grid - same as before */}
       <Box mt={80}>
         <Title order={2} ta="center" mb="xl">Key Features</Title>
         <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg">
@@ -97,7 +114,7 @@ export function LandingSection({ onLoginClick, onRegisterClick }: LandingSection
               </ThemeIcon>
               <Title order={3} size="h4" ta="center">Team Management</Title>
               <Text ta="center" c="dimmed">
-                Invite staff members with role-based permissions. Owners, 
+                Invite staff members with simple invite codes. Owners, 
                 managers, and staff have different access levels.
               </Text>
             </Stack>
@@ -110,7 +127,7 @@ export function LandingSection({ onLoginClick, onRegisterClick }: LandingSection
               <Title order={3} size="h4" ta="center">Analytics & Reports</Title>
               <Text ta="center" c="dimmed">
                 Generate PDF reports, track form submissions, and analyze 
-                trends to improve your facility&#39;s operations.
+                trends to improve your facility's operations.
               </Text>
             </Stack>
           </Card>
@@ -199,9 +216,14 @@ export function LandingSection({ onLoginClick, onRegisterClick }: LandingSection
             <Text mb="lg">
               No credit card required. Set up your account in minutes.
             </Text>
-            <Button onClick={onRegisterClick} size="xl" w={250}>
-              Get Started Free
-            </Button>
+            <Group justify="center" gap="md">
+              <Button onClick={onRegisterClick} size="xl">
+                Get Started Free
+              </Button>
+              <Button onClick={onInviteCodeClick} variant="outline" size="xl" leftSection={<IconKey size={20} />}>
+                Join Team
+              </Button>
+            </Group>
           </Box>
         </Stack>
       </Card>
