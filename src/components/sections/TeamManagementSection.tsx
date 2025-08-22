@@ -122,45 +122,103 @@ export function TeamManagementSection({
   }
 
   const handleSendInvitation = async (values: InviteForm) => {
-    if (!businessId) return
-
-    try {
-      setInviteLoading(true)
-      setError(null)
-
-      // Use secure function that includes all permission and validation checks
-      await createInvitation(
-        businessId,
-        values.email,
-        values.role,
-        values.firstName,
-        values.lastName
-      )
-
-      notifications.show({
-        title: 'Invitation sent!',
-        message: `An invitation has been sent to ${values.email}`,
-        color: 'green',
-      })
-
-      // Reset form and close modal
-      inviteForm.reset()
-      setInviteModalOpen(false)
-      
-      // Reload data
-      loadTeamData()
-
-    } catch (err: any) {
-      setError(err.message)
-      notifications.show({
-        title: 'Error',
-        message: err.message,
-        color: 'red',
-      })
-    } finally {
-      setInviteLoading(false)
-    }
+  console.log('🔄 STARTING invitation send...', values)
+  
+  if (!businessId) {
+    console.error('❌ No business ID available')
+    setError('No business ID available')
+    return
   }
+
+  try {
+    setInviteLoading(true)
+    setError(null)
+
+    console.log('🔄 Step 1: Checking for existing user...')
+    
+    // Check if user already exists
+    const { data: existingUser, error: userCheckError } = await supabase
+      .from('users')
+      .select('email')
+      .eq('email', values.email)
+      .single()
+
+    console.log('🔄 User check result:', { existingUser, userCheckError })
+
+    if (existingUser) {
+      throw new Error('A user with this email already exists')
+    }
+
+    console.log('🔄 Step 2: Getting current user...')
+    
+    // Get current user ID
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    console.log('🔄 Auth user result:', { user: user?.id, authError })
+    
+    if (!user) throw new Error('Not authenticated')
+
+    console.log('🔄 Step 3: Creating invitation token...')
+    
+    // Generate secure token
+    const token = crypto.randomUUID() + '-' + Date.now()
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + 7) // 7 days expiry
+
+    console.log('🔄 Step 4: Inserting invitation...', {
+      business_id: businessId,
+      email: values.email,
+      role: values.role,
+      invited_by: user.id,
+      token,
+      expires_at: expiresAt.toISOString()
+    })
+
+    // Create invitation
+    const { error: inviteError } = await supabase
+      .from('user_invitations')
+      .insert({
+        business_id: businessId,
+        email: values.email,
+        role: values.role,
+        invited_by: user.id,
+        token,
+        expires_at: expiresAt.toISOString()
+      })
+
+    console.log('🔄 Invitation insert result:', { inviteError })
+
+    if (inviteError) {
+      console.error('❌ Invitation creation error:', inviteError)
+      throw new Error(`Failed to create invitation: ${inviteError.message}`)
+    }
+
+    console.log('✅ Invitation created successfully!')
+
+    notifications.show({
+      title: 'Invitation sent!',
+      message: `An invitation has been sent to ${values.email}`,
+      color: 'green',
+    })
+
+    // Reset form and close modal
+    inviteForm.reset()
+    setInviteModalOpen(false)
+    
+    // Reload data
+    loadTeamData()
+
+  } catch (err: any) {
+    console.error('❌ FULL ERROR:', err)
+    setError(err.message)
+    notifications.show({
+      title: 'Error',
+      message: err.message,
+      color: 'red',
+    })
+  } finally {
+    setInviteLoading(false)
+  }
+}
 
   const handleCancelInvitation = async (invitationId: string) => {
     try {
