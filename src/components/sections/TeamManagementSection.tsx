@@ -1,4 +1,4 @@
-// src/components/sections/TeamManagementSection.tsx - Updated with invite codes
+// src/components/sections/TeamManagementSection.tsx - Updated with invite URLs
 import { useState, useEffect } from 'react'
 import {
   Container,
@@ -22,7 +22,8 @@ import {
   Divider,
   CopyButton,
   Tooltip,
-  Code
+  Code,
+  Box
 } from '@mantine/core'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
@@ -36,7 +37,10 @@ import {
   IconKey,
   IconCopy,
   IconCheck,
-  IconMail
+  IconMail,
+  IconLink,
+  IconShare,
+  IconExternalLink
 } from '@tabler/icons-react'
 import type { UserRole } from '@/lib/database.types'
 import { createInviteCode, getBusinessInviteCodes } from '@/lib/inviteCodes'
@@ -143,9 +147,13 @@ export function TeamManagementSection({
         values.expiryDays
       )
 
+      // NEW: Generate invite URL
+      const baseUrl = window.location.origin
+      const inviteUrl = `${baseUrl}/?invite=${code}`
+
       notifications.show({
-        title: 'Invite code created!',
-        message: `Code ${code} has been created and is ready to share.`,
+        title: 'Invite link created!',
+        message: `Invite link has been generated and is ready to share.`,
         color: 'green',
       })
 
@@ -194,6 +202,46 @@ export function TeamManagementSection({
     }
   }
 
+  // NEW: Generate invite URL for display
+  const generateInviteUrl = (code: string) => {
+    const baseUrl = window.location.origin
+    return `${baseUrl}/?invite=${code}`
+  }
+
+  // NEW: Share invite URL
+  const handleShareInvite = async (code: string, businessName?: string) => {
+    const inviteUrl = generateInviteUrl(code)
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join Our Healthcare Team',
+          text: `You're invited to join ${businessName || 'our healthcare team'}! Click the link to get started.`,
+          url: inviteUrl,
+        })
+      } catch (err) {
+        // User cancelled share or sharing not supported
+        console.log('Share cancelled')
+      }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(inviteUrl)
+        notifications.show({
+          title: 'Link copied!',
+          message: 'Invite link has been copied to clipboard',
+          color: 'green',
+        })
+      } catch (err) {
+        notifications.show({
+          title: 'Error',
+          message: 'Could not copy link to clipboard',
+          color: 'red',
+        })
+      }
+    }
+  }
+
   const getRoleBadgeColor = (role: UserRole) => {
     switch (role) {
       case 'owner': return 'grape'
@@ -231,16 +279,16 @@ export function TeamManagementSection({
           </ActionIcon>
           <Stack gap="xs">
             <Title order={1}>Team Management</Title>
-            <Text c="dimmed">Manage your healthcare facility team with invite codes</Text>
+            <Text c="dimmed">Manage your healthcare facility team with invite links</Text>
           </Stack>
         </Group>
         
         {(currentUserRole === 'owner' || currentUserRole === 'manager') && (
           <Button
-            leftSection={<IconKey size={16} />}
+            leftSection={<IconLink size={16} />}
             onClick={() => setCreateCodeModalOpen(true)}
           >
-            Create Invite Code
+            Create Invite Link
           </Button>
         )}
       </Group>
@@ -264,7 +312,7 @@ export function TeamManagementSection({
               <IconCheck size={16} />
             </ThemeIcon>
             <Text size="xl" fw={700}>{inviteCodes.filter(c => c.used_at).length}</Text>
-            <Text size="sm" c="dimmed">Used Codes</Text>
+            <Text size="sm" c="dimmed">Used Invites</Text>
           </Stack>
         </Paper>
       </Group>
@@ -280,7 +328,7 @@ export function TeamManagementSection({
 
         {teamMembers.length === 0 ? (
           <Text c="dimmed" ta="center" py="xl">
-            No team members yet. Create an invite code to get started!
+            No team members yet. Create an invite link to get started!
           </Text>
         ) : (
           <Table>
@@ -334,10 +382,10 @@ export function TeamManagementSection({
         )}
       </Card>
 
-      {/* Invite Codes */}
+      {/* Invite Links */}
       <Card shadow="sm" radius="md" p="lg">
         <Group justify="space-between" mb="md">
-          <Title order={2} size="h3">Invite Codes</Title>
+          <Title order={2} size="h3">Invite Links</Title>
           <Badge variant="light" color="orange">
             {inviteCodes.filter(c => !c.used_at && new Date(c.expires_at) > new Date()).length} Active
           </Badge>
@@ -345,13 +393,13 @@ export function TeamManagementSection({
 
         {inviteCodes.length === 0 ? (
           <Text c="dimmed" ta="center" py="xl">
-            No invite codes created yet. Create your first invite code to start adding team members!
+            No invite links created yet. Create your first invite link to start adding team members!
           </Text>
         ) : (
           <Table>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Code</Table.Th>
+                <Table.Th>Invite Link</Table.Th>
                 <Table.Th>Role</Table.Th>
                 <Table.Th>Email</Table.Th>
                 <Table.Th>Status</Table.Th>
@@ -364,23 +412,19 @@ export function TeamManagementSection({
                 const isExpired = new Date() > new Date(code.expires_at)
                 const isUsed = !!code.used_at
                 const isActive = !isUsed && !isExpired
+                const inviteUrl = generateInviteUrl(code.code)
 
                 return (
                   <Table.Tr key={code.id}>
                     <Table.Td>
-                      <Group gap="xs">
-                        <Code>{formatCodeForDisplay(code.code)}</Code>
-                        {isActive && (
-                          <CopyButton value={code.code}>
-                            {({ copied, copy }) => (
-                              <Tooltip label={copied ? 'Copied!' : 'Copy code'}>
-                                <ActionIcon variant="subtle" size="sm" onClick={copy}>
-                                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                                </ActionIcon>
-                              </Tooltip>
-                            )}
-                          </CopyButton>
-                        )}
+                      <Group gap="xs" maw={200}>
+                        <IconLink size={14} color="var(--mantine-color-blue-6)" />
+                        <Box style={{ flex: 1, minWidth: 0 }}>
+                          <Text size="xs" c="dimmed" truncate>
+                            {inviteUrl}
+                          </Text>
+                          <Code size="sm">{formatCodeForDisplay(code.code)}</Code>
+                        </Box>
                       </Group>
                     </Table.Td>
                     <Table.Td>
@@ -414,16 +458,58 @@ export function TeamManagementSection({
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      {isActive && (
-                        <ActionIcon
-                          variant="light"
-                          color="red"
-                          size="sm"
-                          onClick={() => handleDeleteInviteCode(code.id)}
-                        >
-                          <IconTrash size={12} />
-                        </ActionIcon>
-                      )}
+                      <Group gap="xs">
+                        {isActive && (
+                          <>
+                            {/* NEW: Copy URL button */}
+                            <CopyButton value={inviteUrl}>
+                              {({ copied, copy }) => (
+                                <Tooltip label={copied ? 'Copied!' : 'Copy invite link'}>
+                                  <ActionIcon variant="light" size="sm" onClick={copy} color="blue">
+                                    {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                                  </ActionIcon>
+                                </Tooltip>
+                              )}
+                            </CopyButton>
+
+                            {/* NEW: Share button */}
+                            <Tooltip label="Share invite link">
+                              <ActionIcon
+                                variant="light"
+                                size="sm"
+                                onClick={() => handleShareInvite(code.code, 'Healthcare Team')}
+                                color="green"
+                              >
+                                <IconShare size={12} />
+                              </ActionIcon>
+                            </Tooltip>
+
+                            {/* NEW: Open link button */}
+                            <Tooltip label="Test invite link">
+                              <ActionIcon
+                                variant="light"
+                                size="sm"
+                                onClick={() => window.open(inviteUrl, '_blank')}
+                                color="grape"
+                              >
+                                <IconExternalLink size={12} />
+                              </ActionIcon>
+                            </Tooltip>
+
+                            {/* Delete button */}
+                            <Tooltip label="Delete invite">
+                              <ActionIcon
+                                variant="light"
+                                color="red"
+                                size="sm"
+                                onClick={() => handleDeleteInviteCode(code.id)}
+                              >
+                                <IconTrash size={12} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </>
+                        )}
+                      </Group>
                     </Table.Td>
                   </Table.Tr>
                 )
@@ -433,19 +519,19 @@ export function TeamManagementSection({
         )}
       </Card>
 
-      {/* Create Invite Code Modal */}
+      {/* Create Invite Link Modal */}
       <Modal
         opened={createCodeModalOpen}
         onClose={() => setCreateCodeModalOpen(false)}
-        title="Create Invite Code"
+        title="Create Invite Link"
         size="md"
       >
         <form onSubmit={inviteForm.onSubmit(handleCreateInviteCode)}>
           <Stack gap="md">
-            <Alert color="blue" variant="light">
+            <Alert color="blue" variant="light" icon={<IconLink size="1rem" />}>
               <Text size="sm">
-                Create a secure invite code that team members can use to join your organization. 
-                Codes can be shared via email, text, or any other method.
+                Create a secure invite link that team members can click to join your organization. 
+                Links can be shared via email, text, or any messaging platform.
               </Text>
             </Alert>
 
@@ -464,7 +550,7 @@ export function TeamManagementSection({
             <TextInput
               label="Email Address (Optional)"
               placeholder="john.doe@email.com"
-              description="Leave empty to allow any email address to use this code"
+              description="Leave empty to allow any email address to use this link"
               value={inviteForm.values.email}
               onChange={(event) => inviteForm.setFieldValue('email', event.currentTarget.value)}
               error={inviteForm.errors.email}
@@ -472,7 +558,7 @@ export function TeamManagementSection({
 
             <Select
               required
-              label="Expires After"
+              label="Link Expires After"
               data={[
                 { value: '1', label: '1 day' },
                 { value: '3', label: '3 days' },
@@ -484,12 +570,25 @@ export function TeamManagementSection({
               onChange={(value) => inviteForm.setFieldValue('expiryDays', parseInt(value || '7'))}
             />
 
+            <Alert color="green" variant="light">
+              <Stack gap="xs">
+                <Text size="sm" fw={500}>✨ New: One-click invites!</Text>
+                <Text size="sm">
+                  Your invite will generate a shareable link like:<br />
+                  <Code>https://yourapp.com/?invite=ABCD1234</Code>
+                </Text>
+                <Text size="xs" c="dimmed">
+                  Recipients can simply click the link instead of manually entering codes.
+                </Text>
+              </Stack>
+            </Alert>
+
             <Group justify="flex-end" gap="md">
               <Button variant="outline" onClick={() => setCreateCodeModalOpen(false)}>
                 Cancel
               </Button>
               <Button type="submit" loading={createCodeLoading}>
-                Create Code
+                Create Invite Link
               </Button>
             </Group>
           </Stack>

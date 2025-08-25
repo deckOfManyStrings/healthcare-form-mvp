@@ -1,4 +1,4 @@
-// src/app/page.tsx - Clean version with invite codes only
+// src/app/page.tsx - Updated with URL parameter detection for invite codes
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -62,9 +62,30 @@ export default function HomePage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [inviteCode, setInviteCode] = useState<string | null>(null) // NEW: Store invite code from URL
 
-  // Check authentication status on page load
+  // NEW: Check for invite parameter in URL on page load
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const inviteParam = urlParams.get('invite')
+    
+    if (inviteParam) {
+      console.log('🔗 Invite code detected in URL:', inviteParam)
+      setInviteCode(inviteParam.toUpperCase())
+      
+      // Clean URL by removing the invite parameter
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('invite')
+      window.history.replaceState({}, '', newUrl.pathname)
+      
+      // Show notification about invite link detection
+      notifications.show({
+        title: 'Invite link detected!',
+        message: 'Processing your team invitation...',
+        color: 'blue',
+      })
+    }
+    
     checkAuth()
   }, [])
 
@@ -80,11 +101,21 @@ export default function HomePage() {
         await loadUserProfile(session.user.id)
       } else {
         console.log('ℹ️ No user session found')
-        setAppState('landing')
+        // NEW: If we have an invite code, go to invite flow, otherwise landing
+        if (inviteCode) {
+          setAppState('invite-code')
+        } else {
+          setAppState('landing')
+        }
       }
     } catch (error) {
       console.error('Auth check error:', error)
-      setAppState('landing')
+      // NEW: If we have an invite code, go to invite flow, otherwise landing
+      if (inviteCode) {
+        setAppState('invite-code')
+      } else {
+        setAppState('landing')
+      }
     }
   }
 
@@ -276,8 +307,15 @@ export default function HomePage() {
   }
 
   const handleInviteCodeSuccess = async () => {
-    // After successful invite code usage, check auth status
+    // After successful invite code usage, clear the stored code and check auth status
+    setInviteCode(null)
     await checkAuth()
+  }
+
+  // NEW: Handle manual invite code entry
+  const handleManualInviteCode = () => {
+    setInviteCode(null) // Clear any URL-based code
+    setAppState('invite-code')
   }
 
   // Loading state
@@ -287,7 +325,9 @@ export default function HomePage() {
         <Center>
           <Stack align="center" gap="md">
             <Loader size="xl" />
-            <Text>Loading...</Text>
+            <Text>
+              {inviteCode ? 'Processing invite link...' : 'Loading...'}
+            </Text>
           </Stack>
         </Center>
       </Container>
@@ -300,7 +340,7 @@ export default function HomePage() {
       <LandingSection 
         onLoginClick={() => setAppState('login')}
         onRegisterClick={() => setAppState('register')}
-        onInviteCodeClick={() => setAppState('invite-code')}
+        onInviteCodeClick={handleManualInviteCode}
       />
     )
   }
@@ -337,6 +377,7 @@ export default function HomePage() {
       <InviteCodeSection
         onSuccess={handleInviteCodeSuccess}
         onBackClick={() => setAppState('landing')}
+        initialCode={inviteCode} // NEW: Pass the detected invite code
       />
     )
   }

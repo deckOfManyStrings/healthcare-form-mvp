@@ -1,5 +1,5 @@
-// src/components/sections/InviteCodeSection.tsx
-import { useState } from 'react'
+// src/components/sections/InviteCodeSection.tsx - Updated for URL-based invites
+import { useState, useEffect } from 'react'
 import {
   Container,
   Card,
@@ -14,11 +14,13 @@ import {
   ThemeIcon,
   Progress,
   Divider,
-  Badge
+  Badge,
+  Loader,
+  Center
 } from '@mantine/core'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
-import { IconHeart, IconAlertCircle, IconCheck, IconKey } from '@tabler/icons-react'
+import { IconHeart, IconAlertCircle, IconCheck, IconKey, IconLink } from '@tabler/icons-react'
 import { validateInviteCode, useInviteCode } from '@/lib/inviteCodes'
 import type { InviteCode } from '@/lib/inviteCodes'
 
@@ -34,6 +36,7 @@ interface InviteCodeForm {
 interface InviteCodeSectionProps {
   onSuccess: () => void
   onBackClick: () => void
+  initialCode?: string // NEW: For URL-based invites
 }
 
 function getPasswordStrength(password: string) {
@@ -45,14 +48,14 @@ function getPasswordStrength(password: string) {
   return strength
 }
 
-export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionProps) {
-  const [step, setStep] = useState<'code' | 'details'>('code')
+export function InviteCodeSection({ onSuccess, onBackClick, initialCode }: InviteCodeSectionProps) {
+  const [step, setStep] = useState<'code' | 'details' | 'loading'>('loading') // Start with loading
   const [validatedCode, setValidatedCode] = useState<InviteCode | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const codeForm = useForm({
-    initialValues: { code: '' },
+    initialValues: { code: initialCode || '' },
     validate: {
       code: (val) => (val.length !== 8 ? 'Invite code must be 8 characters' : null),
     },
@@ -82,6 +85,41 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
     },
   })
 
+  // NEW: Auto-validate code on component mount if initialCode exists
+  useEffect(() => {
+    const autoValidateCode = async () => {
+      if (initialCode) {
+        console.log('🔄 Auto-validating invite code from URL:', initialCode)
+        try {
+          const codeData = await validateInviteCode(initialCode)
+          setValidatedCode(codeData)
+
+          // If code has a pre-assigned email, populate it
+          if (codeData.email) {
+            detailsForm.setFieldValue('email', codeData.email)
+          }
+
+          notifications.show({
+            title: 'Valid invite link!',
+            message: `You're invited to join ${codeData.business_name} as ${codeData.role}`,
+            color: 'green',
+          })
+
+          setStep('details')
+
+        } catch (err: any) {
+          console.error('❌ Auto-validation failed:', err)
+          setError(err.message)
+          setStep('code') // Fall back to manual entry
+        }
+      } else {
+        setStep('code') // No initial code, show manual entry
+      }
+    }
+
+    autoValidateCode()
+  }, [initialCode])
+
   const passwordStrength = getPasswordStrength(detailsForm.values.password)
   const passwordColor = passwordStrength === 100 ? 'green' : passwordStrength > 50 ? 'yellow' : 'red'
 
@@ -90,7 +128,7 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
       setLoading(true)
       setError(null)
 
-      console.log('🔍 Validating invite code:', values.code)
+      console.log('🔍 Manually validating invite code:', values.code)
 
       const codeData = await validateInviteCode(values.code)
       setValidatedCode(codeData)
@@ -166,6 +204,28 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
     }
   }
 
+  // NEW: Loading state while auto-validating
+  if (step === 'loading') {
+    return (
+      <Container size={500} my={40}>
+        <Center>
+          <Stack align="center" gap="lg">
+            <ThemeIcon size={60} radius="md" color="blue">
+              <IconHeart size={30} />
+            </ThemeIcon>
+            <Stack align="center" gap="xs">
+              <Title order={1} ta="center">Processing Invite</Title>
+              <Text ta="center" c="dimmed">
+                Validating your invite link...
+              </Text>
+            </Stack>
+            <Loader size="lg" />
+          </Stack>
+        </Center>
+      </Container>
+    )
+  }
+
   return (
     <Container size={500} my={40}>
       <Stack align="center" gap="lg">
@@ -193,6 +253,15 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
               </Group>
 
               <Title order={2} size="h3" ta="center">Enter Invite Code</Title>
+              
+              {/* NEW: Show URL info if we came from a URL */}
+              {initialCode && (
+                <Alert color="orange" variant="light" icon={<IconLink size="1rem" />}>
+                  <Text size="sm">
+                    Your invite link appears to be invalid or expired. Please enter your invite code manually below.
+                  </Text>
+                </Alert>
+              )}
               
               {error && (
                 <Alert 
@@ -252,7 +321,9 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
               {/* Code validation success */}
               <Alert color="green" variant="light" icon={<IconCheck size="1rem" />}>
                 <Stack gap="xs">
-                  <Text size="sm" fw={500}>Invite code validated!</Text>
+                  <Text size="sm" fw={500}>
+                    {initialCode ? 'Invite link validated!' : 'Invite code validated!'}
+                  </Text>
                   <Group justify="space-between">
                     <Text size="sm">Business: {validatedCode.business_name}</Text>
                     <Badge variant="light" color={getRoleBadgeColor(validatedCode.role)}>
@@ -375,7 +446,7 @@ export function InviteCodeSection({ onSuccess, onBackClick }: InviteCodeSectionP
 
         <Text c="dimmed" size="xs" ta="center" maw={400}>
           Your data is encrypted and HIPAA compliant. 
-          One-time invite codes ensure secure team access.
+          Invite links and codes ensure secure team access.
         </Text>
       </Stack>
     </Container>
